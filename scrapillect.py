@@ -3,6 +3,7 @@ from BeautifulSoup import BeautifulSoup
 import shutil
 import os, sys, errno
 import urlparse
+from simplejson import loads, dumps
 
 print "starting..."
 
@@ -12,7 +13,15 @@ html = response.content
 
 soup = BeautifulSoup(html)
 
-container = soup.find('div', attrs={'id':'container'})
+container = soup.find('div', attrs={'id': 'container'})
+
+try:
+    state = loads(open(os.path.join(os.path.dirname(__file__), 'scrape.state'), 'r').read())
+except IOError:
+    state = {}
+
+if 'last_image' not in state:
+    state['last_image'] = ''
 
 
 # create the output images folder if it doesn't exist
@@ -28,36 +37,51 @@ def ensure_dir(directory):
                 raise
 
 
+first_image = ''
+
 # loop through all the thumbnails on the home page
-for row in container.findAll('a'):
-    sys.stdout.write(row.get('href'))
-    sys.stdout.flush()
+try:
+    for row in container.findAll('a'):
+        if first_image == '':
+            first_image = row.get('href')
 
-    # go through each subpage
-    suburl = url + row.get('href')
-    response2 = requests.get(suburl)
-    html2 = response2.content
-    soup2 = BeautifulSoup(html2)
+        if state['last_image'] == row.get('href'):
+            print "...the rest of these look familiar"
+            break
 
-    # get the image url from that subpage
-    subpage = soup2.find('img', attrs={'id':'ii'})
-    # sys.stdout.write('..' + subpage.get('src'))
-    # sys.stdout.flush()
+        sys.stdout.write(row.get('href'))
+        sys.stdout.flush()
 
-    # get the base filename from the server, we'll use this to write the file
-    imagefilename = urlparse.urlsplit(subpage.get('src')).path.split('/')[-1]
-    sys.stdout.write(".." + imagefilename)
-    sys.stdout.flush()
+        # go through each sub_page
+        sub_url = url + row.get('href')
+        response2 = requests.get(sub_url)
+        html2 = response2.content
+        soup2 = BeautifulSoup(html2)
 
-    script_path = os.path.dirname(os.path.realpath(__file__))
-    ensure_dir(script_path + '/images')
+        # get the image url from that sub_page
+        sub_page = soup2.find('img', attrs={'id': 'ii'})
 
-    # download the image
-    response3 = requests.get(subpage.get('src'), stream=True)
-    with open(script_path + "/images/" + imagefilename, 'wb') as out_file:
-        shutil.copyfileobj(response3.raw, out_file)
+        # get the base filename from the server, we'll use this to write the file
+        image_filename = urlparse.urlsplit(sub_page.get('src')).path.split('/')[-1]
+        sys.stdout.write(".." + image_filename)
+        sys.stdout.flush()
 
-    print "..done!"
+        script_path = os.path.dirname(os.path.realpath(__file__))
+        ensure_dir(script_path + '/images')
 
+        # download the image
+        response3 = requests.get(sub_page.get('src'), stream=True)
+        with open(script_path + "/images/" + image_filename, 'wb') as out_file:
+            shutil.copyfileobj(response3.raw, out_file)
+
+        print "..done!"
+except KeyboardInterrupt:
+    print ""
+    print "KeyboardInterrupt: Quitting without saving state"
+    exit(1)
+
+
+state['last_image'] = first_image
 
 print "...all done!"
+open(os.path.join(os.path.dirname(__file__), 'scrape.state'), 'w').write(dumps(state))

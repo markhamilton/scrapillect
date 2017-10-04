@@ -2,3 +2,5 @@ images/
 .idea/
 
 .DS_Store
+
+scrape.state
